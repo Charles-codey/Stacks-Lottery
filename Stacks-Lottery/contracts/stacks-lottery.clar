@@ -96,7 +96,7 @@
       (range-list (create-range count))
       (fold-data { lottery-id: lottery-id, start-ticket: start-ticket, owner: owner })
     )
-    (fold assign-tickets-fold fold-data range-list)
+    (fold assign-tickets-fold range-list fold-data)
     true
   )
 )
@@ -105,8 +105,8 @@
   (let
     (
       (lottery-id (+ (var-get lottery-counter) u1))
-      (start-block block-height)
-      (end-block (+ block-height duration-blocks))
+      (start-block stacks-block-height)
+      (end-block (+ stacks-block-height duration-blocks))
     )
     (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
     (var-set lottery-counter lottery-id)
@@ -135,7 +135,7 @@
       (current-tickets (get total-tickets lottery))
     )
     (asserts! (is-eq (get status lottery) "open") ERR_LOTTERY_CLOSED)
-    (asserts! (< block-height (get end-block lottery)) ERR_LOTTERY_CLOSED)
+    (asserts! (< stacks-block-height (get end-block lottery)) ERR_LOTTERY_CLOSED)
     (asserts! (and (> ticket-count u0) (<= ticket-count u10)) ERR_INVALID_TICKET_COUNT)
     
     (try! (stx-transfer? total-cost tx-sender (as-contract tx-sender)))
@@ -170,14 +170,14 @@
     (
       (lottery (unwrap! (map-get? lotteries { lottery-id: lottery-id }) ERR_LOTTERY_NOT_FOUND))
       (total-tickets (get total-tickets lottery))
-      (winning-ticket (mod (unwrap-panic (get-block-info? vrf-seed block-height)) total-tickets))
+      (winning-ticket (mod (+ stacks-block-height lottery-id) total-tickets))
       (winner-data (unwrap! (map-get? tickets { lottery-id: lottery-id, ticket-number: winning-ticket }) ERR_LOTTERY_NOT_FOUND))
       (winner (get owner winner-data))
       (prize-amount (get prize-pool lottery))
     )
     (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
     (asserts! (is-eq (get status lottery) "open") ERR_LOTTERY_CLOSED)
-    (asserts! (>= block-height (get end-block lottery)) ERR_LOTTERY_CLOSED)
+    (asserts! (>= stacks-block-height (get end-block lottery)) ERR_LOTTERY_CLOSED)
     (asserts! (> total-tickets u0) ERR_LOTTERY_NOT_FOUND)
     
     (map-set lotteries
@@ -242,11 +242,11 @@
     (
       (lottery (unwrap! (map-get? lotteries { lottery-id: lottery-id }) ERR_LOTTERY_NOT_FOUND))
       (total-tickets (get total-tickets lottery))
-      (blocks-remaining (if (> (get end-block lottery) block-height)
-                          (- (get end-block lottery) block-height)
+      (blocks-remaining (if (> (get end-block lottery) stacks-block-height)
+                          (- (get end-block lottery) stacks-block-height)
                           u0))
       (is-active (and (is-eq (get status lottery) "open") 
-                      (< block-height (get end-block lottery))))
+                      (< stacks-block-height (get end-block lottery))))
     )
     (ok {
       lottery-id: lottery-id,
