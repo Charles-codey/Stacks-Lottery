@@ -114,3 +114,31 @@
     )
   )
 )
+
+(define-public (draw-winner (lottery-id uint))
+  (let
+    (
+      (lottery (unwrap! (map-get? lotteries { lottery-id: lottery-id }) ERR_LOTTERY_NOT_FOUND))
+      (total-tickets (get total-tickets lottery))
+      (winning-ticket (mod (unwrap-panic (get-block-info? vrf-seed block-height)) total-tickets))
+      (winner-data (unwrap! (map-get? tickets { lottery-id: lottery-id, ticket-number: winning-ticket }) ERR_LOTTERY_NOT_FOUND))
+      (winner (get owner winner-data))
+      (prize-amount (get prize-pool lottery))
+    )
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
+    (asserts! (is-eq (get status lottery) "open") ERR_LOTTERY_CLOSED)
+    (asserts! (>= block-height (get end-block lottery)) ERR_LOTTERY_CLOSED)
+    (asserts! (> total-tickets u0) ERR_LOTTERY_NOT_FOUND)
+    
+    (map-set lotteries
+      { lottery-id: lottery-id }
+      (merge lottery {
+        status: "closed",
+        winner: (some winner)
+      })
+    )
+    
+    (try! (as-contract (stx-transfer? prize-amount tx-sender winner)))
+    (ok { winner: winner, prize: prize-amount, winning-ticket: winning-ticket })
+  )
+)
