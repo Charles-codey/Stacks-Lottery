@@ -184,3 +184,108 @@
     (ok refund-amount)
   )
 )
+
+;; NEW FUNCTION 3: Get lottery statistics and history
+(define-read-only (get-lottery-stats (lottery-id uint))
+  (let
+    (
+      (lottery (unwrap! (map-get? lotteries { lottery-id: lottery-id }) ERR_LOTTERY_NOT_FOUND))
+      (total-tickets (get total-tickets lottery))
+      (blocks-remaining (if (> (get end-block lottery) block-height)
+                          (- (get end-block lottery) block-height)
+                          u0))
+      (is-active (and (is-eq (get status lottery) "open") 
+                      (< block-height (get end-block lottery))))
+    )
+    (ok {
+      lottery-id: lottery-id,
+      status: (get status lottery),
+      start-block: (get start-block lottery),
+      end-block: (get end-block lottery),
+      blocks-remaining: blocks-remaining,
+      is-active: is-active,
+      total-tickets: total-tickets,
+      prize-pool: (get prize-pool lottery),
+      ticket-price: (get ticket-price lottery),
+      winner: (get winner lottery),
+      participation-rate: (if (> total-tickets u0) 
+                           (/ (* total-tickets u100) (+ total-tickets u1)) 
+                           u0)
+    })
+  )
+)
+
+;; NEW FUNCTION 4: Get all player ticket numbers for a specific lottery
+(define-read-only (get-player-ticket-numbers (lottery-id uint) (player principal))
+  (let
+    (
+      (lottery (unwrap! (map-get? lotteries { lottery-id: lottery-id }) ERR_LOTTERY_NOT_FOUND))
+      (player-data (map-get? player-tickets { lottery-id: lottery-id, player: player }))
+      (total-tickets (get total-tickets lottery))
+    )
+    (match player-data
+      player-info
+      (ok (collect-player-tickets lottery-id player u0 total-tickets (list)))
+      (ok (list))
+    )
+  )
+)
+
+;; Helper function to collect all ticket numbers owned by a player
+(define-private (collect-player-tickets (lottery-id uint) (player principal) (current-ticket uint) (max-tickets uint) (ticket-list (list 100 uint)))
+  (if (>= current-ticket max-tickets)
+    ticket-list
+    (let
+      (
+        (ticket-owner (map-get? tickets { lottery-id: lottery-id, ticket-number: current-ticket }))
+      )
+      (match ticket-owner
+        owner-data
+        (if (is-eq (get owner owner-data) player)
+          (collect-player-tickets lottery-id player (+ current-ticket u1) max-tickets (unwrap-panic (as-max-len? (append ticket-list current-ticket) u100)))
+          (collect-player-tickets lottery-id player (+ current-ticket u1) max-tickets ticket-list))
+        (collect-player-tickets lottery-id player (+ current-ticket u1) max-tickets ticket-list)
+      )
+    )
+  )
+)
+
+(define-read-only (get-lottery (lottery-id uint))
+  (map-get? lotteries { lottery-id: lottery-id })
+)
+
+(define-read-only (get-current-lottery)
+  (var-get current-lottery-id)
+)
+
+(define-read-only (get-player-tickets (lottery-id uint) (player principal))
+  (map-get? player-tickets { lottery-id: lottery-id, player: player })
+)
+
+(define-read-only (get-ticket-owner (lottery-id uint) (ticket-number uint))
+  (map-get? tickets { lottery-id: lottery-id, ticket-number: ticket-number })
+)
+
+(define-read-only (get-all-lotteries)
+  (map-values lotteries)
+)
+
+(define-read-only (get-all-player-tickets (player principal))
+  (let
+    (
+      (all-tickets (map-values player-tickets))
+      (player-tickets (filter (fn (ticket) (is-eq (get player ticket) player)) all-tickets))
+    )
+    (ok player-tickets)
+  )
+)
+
+(define-read-only (get-lottery-history)
+  (let
+    (
+      (all-lotteries (map-values lotteries))
+      (closed-lotteries (filter (fn (lottery) (is-eq (get status lottery) "closed")) all-lotteries))
+    )
+    (ok closed-lotteries)
+  )
+)
