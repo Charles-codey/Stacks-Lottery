@@ -37,3 +37,80 @@
   { lottery-id: uint, player: principal }
   { ticket-count: uint }
 )
+
+(define-public (create-lottery (duration-blocks uint))
+  (let
+    (
+      (lottery-id (+ (var-get lottery-counter) u1))
+      (start-block block-height)
+      (end-block (+ block-height duration-blocks))
+    )
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
+    (var-set lottery-counter lottery-id)
+    (var-set current-lottery-id lottery-id)
+    (map-set lotteries
+      { lottery-id: lottery-id }
+      {
+        start-block: start-block,
+        end-block: end-block,
+        ticket-price: TICKET_PRICE,
+        total-tickets: u0,
+        prize-pool: u0,
+        status: "open",
+        winner: none
+      }
+    )
+    (ok lottery-id)
+  )
+)
+
+(define-public (buy-tickets (lottery-id uint) (ticket-count uint))
+  (let
+    (
+      (lottery (unwrap! (map-get? lotteries { lottery-id: lottery-id }) ERR_LOTTERY_NOT_FOUND))
+      (total-cost (* ticket-count TICKET_PRICE))
+      (current-tickets (get total-tickets lottery))
+    )
+    (asserts! (is-eq (get status lottery) "open") ERR_LOTTERY_CLOSED)
+    (asserts! (< block-height (get end-block lottery)) ERR_LOTTERY_CLOSED)
+    (asserts! (and (> ticket-count u0) (<= ticket-count u10)) ERR_INVALID_TICKET_COUNT)
+    
+    (try! (stx-transfer? total-cost tx-sender (as-contract tx-sender)))
+    
+    (map-set lotteries
+      { lottery-id: lottery-id }
+      (merge lottery {
+        total-tickets: (+ current-tickets ticket-count),
+        prize-pool: (+ (get prize-pool lottery) total-cost)
+      })
+    )
+    
+    (assign-tickets lottery-id current-tickets ticket-count tx-sender)
+    
+    (let
+      (
+        (player-current-tickets (default-to { ticket-count: u0 }
+                                  (map-get? player-tickets { lottery-id: lottery-id, player: tx-sender })))
+      )
+      (map-set player-tickets
+        { lottery-id: lottery-id, player: tx-sender }
+        { ticket-count: (+ (get ticket-count player-current-tickets) ticket-count) }
+      )
+    )
+    
+    (ok ticket-count)
+  )
+)
+
+(define-private (assign-tickets (lottery-id uint) (start-ticket uint) (count uint) (owner principal))
+  (if (is-eq count u0)
+    true
+    (begin
+      (map-set tickets
+        { lottery-id: lottery-id, ticket-number: start-ticket }
+        { owner: owner }
+      )
+      (assign-tickets lottery-id (+ start-ticket u1) (- count u1) owner)
+    )
+  )
+)
