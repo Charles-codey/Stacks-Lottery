@@ -38,6 +38,69 @@
   { ticket-count: uint }
 )
 
+;; Helper function to assign a single ticket
+(define-private (assign-single-ticket (lottery-id uint) (ticket-number uint) (owner principal))
+  (map-set tickets
+    { lottery-id: lottery-id, ticket-number: ticket-number }
+    { owner: owner }
+  )
+)
+
+;; Helper function to assign tickets using fold
+(define-private (assign-tickets-fold (item uint) (data { lottery-id: uint, start-ticket: uint, owner: principal }))
+  (let
+    (
+      (current-ticket (+ (get start-ticket data) item))
+    )
+    (assign-single-ticket (get lottery-id data) current-ticket (get owner data))
+    data
+  )
+)
+
+;; Helper function to create a list of numbers from 0 to count-1
+(define-private (create-range (count uint))
+  (if (<= count u1)
+    (list u0)
+    (if (is-eq count u2)
+      (list u0 u1)
+      (if (is-eq count u3)
+        (list u0 u1 u2)
+        (if (is-eq count u4)
+          (list u0 u1 u2 u3)
+          (if (is-eq count u5)
+            (list u0 u1 u2 u3 u4)
+            (if (is-eq count u6)
+              (list u0 u1 u2 u3 u4 u5)
+              (if (is-eq count u7)
+                (list u0 u1 u2 u3 u4 u5 u6)
+                (if (is-eq count u8)
+                  (list u0 u1 u2 u3 u4 u5 u6 u7)
+                  (if (is-eq count u9)
+                    (list u0 u1 u2 u3 u4 u5 u6 u7 u8)
+                    (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9)
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+;; Main function to assign multiple tickets
+(define-private (assign-tickets (lottery-id uint) (start-ticket uint) (count uint) (owner principal))
+  (let
+    (
+      (range-list (create-range count))
+      (fold-data { lottery-id: lottery-id, start-ticket: start-ticket, owner: owner })
+    )
+    (fold assign-tickets-fold fold-data range-list)
+    true
+  )
+)
+
 (define-public (create-lottery (duration-blocks uint))
   (let
     (
@@ -102,19 +165,6 @@
   )
 )
 
-(define-private (assign-tickets (lottery-id uint) (start-ticket uint) (count uint) (owner principal))
-  (if (is-eq count u0)
-    true
-    (begin
-      (map-set tickets
-        { lottery-id: lottery-id, ticket-number: start-ticket }
-        { owner: owner }
-      )
-      (assign-tickets lottery-id (+ start-ticket u1) (- count u1) owner)
-    )
-  )
-)
-
 (define-public (draw-winner (lottery-id uint))
   (let
     (
@@ -143,7 +193,7 @@
   )
 )
 
-;; NEW FUNCTION 1: Cancel lottery and refund players (emergency function)
+;; Cancel lottery and refund players (emergency function)
 (define-public (cancel-lottery (lottery-id uint))
   (let
     (
@@ -163,7 +213,7 @@
   )
 )
 
-;; NEW FUNCTION 2: Claim refund for cancelled lottery
+;; Claim refund for cancelled lottery
 (define-public (claim-refund (lottery-id uint))
   (let
     (
@@ -185,7 +235,8 @@
   )
 )
 
-;; NEW FUNCTION 3: Get lottery statistics and history
+;; Read-only functions
+
 (define-read-only (get-lottery-stats (lottery-id uint))
   (let
     (
@@ -215,41 +266,6 @@
   )
 )
 
-;; NEW FUNCTION 4: Get all player ticket numbers for a specific lottery
-(define-read-only (get-player-ticket-numbers (lottery-id uint) (player principal))
-  (let
-    (
-      (lottery (unwrap! (map-get? lotteries { lottery-id: lottery-id }) ERR_LOTTERY_NOT_FOUND))
-      (player-data (map-get? player-tickets { lottery-id: lottery-id, player: player }))
-      (total-tickets (get total-tickets lottery))
-    )
-    (match player-data
-      player-info
-      (ok (collect-player-tickets lottery-id player u0 total-tickets (list)))
-      (ok (list))
-    )
-  )
-)
-
-;; Helper function to collect all ticket numbers owned by a player
-(define-private (collect-player-tickets (lottery-id uint) (player principal) (current-ticket uint) (max-tickets uint) (ticket-list (list 100 uint)))
-  (if (>= current-ticket max-tickets)
-    ticket-list
-    (let
-      (
-        (ticket-owner (map-get? tickets { lottery-id: lottery-id, ticket-number: current-ticket }))
-      )
-      (match ticket-owner
-        owner-data
-        (if (is-eq (get owner owner-data) player)
-          (collect-player-tickets lottery-id player (+ current-ticket u1) max-tickets (unwrap-panic (as-max-len? (append ticket-list current-ticket) u100)))
-          (collect-player-tickets lottery-id player (+ current-ticket u1) max-tickets ticket-list))
-        (collect-player-tickets lottery-id player (+ current-ticket u1) max-tickets ticket-list)
-      )
-    )
-  )
-)
-
 (define-read-only (get-lottery (lottery-id uint))
   (map-get? lotteries { lottery-id: lottery-id })
 )
@@ -266,26 +282,43 @@
   (map-get? tickets { lottery-id: lottery-id, ticket-number: ticket-number })
 )
 
-(define-read-only (get-all-lotteries)
-  (map-values lotteries)
-)
-
-(define-read-only (get-all-player-tickets (player principal))
-  (let
-    (
-      (all-tickets (map-values player-tickets))
-      (player-tickets (filter (fn (ticket) (is-eq (get player ticket) player)) all-tickets))
-    )
-    (ok player-tickets)
+;; Simplified function to check if a player owns a specific ticket
+(define-read-only (player-owns-ticket (lottery-id uint) (player principal) (ticket-number uint))
+  (match (map-get? tickets { lottery-id: lottery-id, ticket-number: ticket-number })
+    ticket-data (is-eq (get owner ticket-data) player)
+    false
   )
 )
 
-(define-read-only (get-lottery-history)
+;; Get basic player statistics for a lottery
+(define-read-only (get-player-lottery-info (lottery-id uint) (player principal))
   (let
     (
-      (all-lotteries (map-values lotteries))
-      (closed-lotteries (filter (fn (lottery) (is-eq (get status lottery) "closed")) all-lotteries))
+      (lottery (map-get? lotteries { lottery-id: lottery-id }))
+      (player-data (map-get? player-tickets { lottery-id: lottery-id, player: player }))
     )
-    (ok closed-lotteries)
+    (match lottery
+      lottery-info
+      (match player-data
+        player-info
+        (ok {
+          lottery-id: lottery-id,
+          player: player,
+          ticket-count: (get ticket-count player-info),
+          total-spent: (* (get ticket-count player-info) TICKET_PRICE),
+          lottery-status: (get status lottery-info),
+          total-lottery-tickets: (get total-tickets lottery-info)
+        })
+        (ok {
+          lottery-id: lottery-id,
+          player: player,
+          ticket-count: u0,
+          total-spent: u0,
+          lottery-status: (get status lottery-info),
+          total-lottery-tickets: (get total-tickets lottery-info)
+        })
+      )
+      ERR_LOTTERY_NOT_FOUND
+    )
   )
 )
