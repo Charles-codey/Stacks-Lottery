@@ -142,3 +142,45 @@
     (ok { winner: winner, prize: prize-amount, winning-ticket: winning-ticket })
   )
 )
+
+;; NEW FUNCTION 1: Cancel lottery and refund players (emergency function)
+(define-public (cancel-lottery (lottery-id uint))
+  (let
+    (
+      (lottery (unwrap! (map-get? lotteries { lottery-id: lottery-id }) ERR_LOTTERY_NOT_FOUND))
+    )
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
+    (asserts! (is-eq (get status lottery) "open") ERR_LOTTERY_CLOSED)
+    
+    (map-set lotteries
+      { lottery-id: lottery-id }
+      (merge lottery {
+        status: "cancelled"
+      })
+    )
+    
+    (ok true)
+  )
+)
+
+;; NEW FUNCTION 2: Claim refund for cancelled lottery
+(define-public (claim-refund (lottery-id uint))
+  (let
+    (
+      (lottery (unwrap! (map-get? lotteries { lottery-id: lottery-id }) ERR_LOTTERY_NOT_FOUND))
+      (player-data (unwrap! (map-get? player-tickets { lottery-id: lottery-id, player: tx-sender }) ERR_NO_REFUND_AVAILABLE))
+      (refund-amount (* (get ticket-count player-data) TICKET_PRICE))
+    )
+    (asserts! (is-eq (get status lottery) "cancelled") ERR_NO_REFUND_AVAILABLE)
+    (asserts! (> refund-amount u0) ERR_NO_REFUND_AVAILABLE)
+    
+    ;; Mark player as refunded by setting ticket count to 0
+    (map-set player-tickets
+      { lottery-id: lottery-id, player: tx-sender }
+      { ticket-count: u0 }
+    )
+    
+    (try! (as-contract (stx-transfer? refund-amount tx-sender tx-sender)))
+    (ok refund-amount)
+  )
+)
